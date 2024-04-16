@@ -1,0 +1,3 @@
+kubernetes
+prettyprint
+https://github.com/datacenter/pyaci/archive/master.zip
