@@ -42,7 +42,7 @@ class ACCEnvVariables(object):
         self.app = self.enviro().get("APP")
         self.vrf_tenant = self.enviro().get("VRF_TENANT")
         self.vrf = self.enviro().get("VRF")
-
+        self.l3out_name = self.enviro().get("L3OUT_NAME")
         self.kube_config = self.enviro().get("KUBE_CONFIG")
         self.cert_user= self.enviro().get("CERT_USER")
         self.cert_name= self.enviro().get("CERT_NAME")
@@ -64,6 +64,7 @@ class ACController(object):
         super().__init__()
         self.env = env
         self.esg_enabled_ns = []
+        self.extEPG_svc = []
         self.apics = []
         self.booting = True
 
@@ -127,6 +128,16 @@ class ACController(object):
         epiptag = self.get_epiptagDn(pod)
         logger.info("Removing Policy TAG tag namespace:%s from Pod %s with IP %s", tag_id, pod.metadata.name,pod.status.pod_ip)
         epiptag.tagTag(key='namespace',value=tag_id).DELETE()
+    
+    def create_extEPG(self, svc):
+        uni = self.randApic().mit.polUni()
+        l3extOut = uni.fvTenant(self.env.tenant).l3extOut(self.env.l3out_name)
+        l3extOut.l3extInstP(svc.metadata.namespace + '-' + svc.metadata.name ).POST()
+        l3extOut.l3extInstP(svc.metadata.namespace + '-' + svc.metadata.name ).l3extSubnet(ip=svc.status.load_balancer.ingress[0].ip + '/32').POST()
+    def delete_extEPG(self, svc):
+        uni = self.randApic().mit.polUni()
+        l3extOut = uni.fvTenant(self.env.tenant).l3extOut(self.env.l3out_name)
+        l3extOut.l3extInstP(svc.metadata.namespace + '-' + svc.metadata.name ).DELETE()
 
     async def watch_namespaces(self):
         while self.booting:
@@ -191,6 +202,21 @@ class ACController(object):
                             logger.info("POD %s Deleted in the ESG enabled ns %s", pod.metadata.name, pod.metadata.namespace)
                             self.clear_tag_pod(pod,pod.metadata.namespace)
                     self.booting= False
+
+    async def watch_services(self):
+        async with client.ApiClient() as api:
+            v1 = client.CoreV1Api(api)
+            async with watch.Watch().stream(v1.list_service_for_all_namespaces) as stream:
+                async for event in stream:
+                    evt, svc = event["type"], event["object"]
+                    if svc.spec.type == "LoadBalancer" and svc.metadata.labels.get("extEpg-enabled") == "true":
+                        self.extEPG_svc.append(svc.metadata.namespace + '-' + svc.metadata.name)
+                        logger.info("Service %s Detected with ip %s adding to the L3OUT", svc.metadata.name, svc.status.load_balancer.ingress[0].ip)
+                        self.create_extEPG(svc)
+                    elif svc.metadata.namespace + '-' + svc.metadata.name in self.extEPG_svc:
+                        logger.info("Service %s Deleted from L3OUT", svc.metadata.name)
+                        self.delete_extEPG(svc)
+
     def run(self):
         loop = asyncio.get_event_loop()
 
@@ -209,8 +235,9 @@ class ACController(object):
         # Since the first time we start the controller, we first load the namespaces and then the pods.
 
         tasks = [
-            asyncio.ensure_future(self.watch_namespaces()),
-            asyncio.ensure_future(self.watch_pods()),
+            #asyncio.ensure_future(self.watch_namespaces()),
+            #asyncio.ensure_future(self.watch_pods()),
+            asyncio.ensure_future(self.watch_services()),
         ]
         # Push tasks into event loop.
         loop.run_until_complete(asyncio.wait(tasks))
