@@ -235,8 +235,8 @@ class ACController(object):
         # Since the first time we start the controller, we first load the namespaces and then the pods.
 
         tasks = [
-            #asyncio.ensure_future(self.watch_namespaces()),
-            #asyncio.ensure_future(self.watch_pods()),
+            asyncio.ensure_future(self.watch_namespaces()),
+            asyncio.ensure_future(self.watch_pods()),
             asyncio.ensure_future(self.watch_services()),
         ]
         # Push tasks into event loop.
