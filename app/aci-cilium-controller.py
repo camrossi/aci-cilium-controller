@@ -131,9 +131,12 @@ class ACController(object):
     
     def create_extEPG(self, svc):
         uni = self.randApic().mit.polUni()
-        l3extOut = uni.fvTenant(self.env.tenant).l3extOut(self.env.l3out_name)
-        l3extOut.l3extInstP(svc.metadata.namespace + '-' + svc.metadata.name ).POST()
-        l3extOut.l3extInstP(svc.metadata.namespace + '-' + svc.metadata.name ).l3extSubnet(ip=svc.status.load_balancer.ingress[0].ip + '/32').POST()
+        # Up() makes the post happening at the parent of the l3extSubnet object since the l3extInstP is non existent.
+        uni.fvTenant(self.env.tenant).\
+            l3extOut(self.env.l3out_name).\
+                l3extInstP(svc.metadata.namespace + '-' + svc.metadata.name ).\
+                    l3extSubnet(ip=svc.status.load_balancer.ingress[0].ip + '/32').Up().POST() 
+
     def delete_extEPG(self, svc):
         uni = self.randApic().mit.polUni()
         l3extOut = uni.fvTenant(self.env.tenant).l3extOut(self.env.l3out_name)
